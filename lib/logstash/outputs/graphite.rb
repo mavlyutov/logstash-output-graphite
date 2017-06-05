@@ -104,29 +104,30 @@ class LogStash::Outputs::Graphite < LogStash::Outputs::Base
 
   def send(message)
     numattempts = 0
-    hosts_to_try = @hosts
-    host = hosts_to_try.sample
-    hosts_to_try.delete(host)
+    hosts_to_try = @hosts.clone
+    host = hosts_to_try.delete hosts_to_try.sample
 
     begin
       address, _, port = host.rpartition(":")
       @logger.debug? && @logger.debug("Trying to send metrics to", :address => address, :port => port)
       TCPSocket.new(address, port).puts(message)
-    rescue Errno::ECOPNNREFUSED, Errno::EPIPE, Errno::ECONNRESET, IOError
+    rescue Exception => e
+      @logger.debug? && @logger.debug("Suffering from", :e => e.message)
       if hosts_to_try.size > 0
-        host = hosts_to_try.sample
-        hosts_to_try.delete(host)
+        host = hosts_to_try.delete hosts_to_try.sample
         retry
       elsif @resend_on_failure && numattempts < @resend_attempts
+        @logger.debug? && @logger.debug("Attempts left", :attempts => @resend_attempts - numattempts - 1)
         sleep(@reconnect_interval)
-        hosts_to_try = @hosts
-        host = hosts_to_try.sample
-        hosts_to_try.delete(host)
+        hosts_to_try = @hosts.clone
+        host = hosts_to_try.delete hosts_to_try.sample
         numattempts += 1
         retry
       else
         @logger.warn("No more hosts to try, skip sending...")
       end
+    else
+      @logger.debug? && @logger.debug("Succesfully send metrics to", :address => address, :port => port)
     end
 
   end
